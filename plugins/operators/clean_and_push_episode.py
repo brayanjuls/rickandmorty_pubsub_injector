@@ -16,6 +16,7 @@ class CleanAndPushEpisodeOperator(BaseOperator):
                  execution_date,
                  project_id,
                  gcp_conn_id,
+                 unzip_file=True,
                  *args, **kwargs):
         super(CleanAndPushEpisodeOperator, self).__init__(*args, **kwargs)
         self.topic_name = topic_name
@@ -26,11 +27,12 @@ class CleanAndPushEpisodeOperator(BaseOperator):
 
     def execute(self, context):
         date = self.execution_date.format(**context)
+
         clean_and_filtered_episodes = self.clean_and_filter_dataset(date)
 
-        publisher = pubsub.PublisherClient()
-
-        self.simulate_streaming(clean_and_filtered_episodes, publisher)
+        if len(clean_and_filtered_episodes) > 0:
+            publisher = pubsub.PublisherClient()
+            self.simulate_streaming(clean_and_filtered_episodes, publisher)
 
     def clean_and_filter_dataset(self, date):
         dates_by_episode = pd.date_range('2020-01-01', '2020-01-30')
@@ -47,10 +49,12 @@ class CleanAndPushEpisodeOperator(BaseOperator):
         episodes = episodes.drop(columns=['season no.', 'episode no.', 'episode name', 'name'])
         episodes['date'] = episodes.apply(get_date_for_episode, axis=1)
         episodes_current_date = episodes[episodes['date'] == date]
-        logging.info(f'currenDate {date}')
-        logging.info(
-            f'data extracted and filtered for season {episodes_current_date.loc[0].seasonNumber} and episode {episodes_current_date.loc[0].episodeNumber}')
-        episodes_current_date = episodes_current_date.drop(columns=['date'])
+        if len(episodes_current_date) > 0:
+            episodes_current_date = episodes_current_date.drop(columns=['date'])
+            logging.info(
+                f'data extracted and filtered for season {episodes_current_date.iloc[0].seasonNumber} and episode {episodes_current_date.iloc[0].episodeNumber}')
+        else:
+            logging.info(f'No episodes were found for the date {date}')
 
         return episodes_current_date
 

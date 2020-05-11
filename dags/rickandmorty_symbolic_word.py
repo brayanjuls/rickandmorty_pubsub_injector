@@ -1,15 +1,15 @@
 from airflow import DAG
 from airflow.operators.dummy_operator import DummyOperator
 from airflow.contrib.operators.pubsub_operator import (
-    PubSubSubscriptionCreateOperator, PubSubTopicCreateOperator)
+     PubSubTopicCreateOperator)
 from airflow.contrib.operators.dataflow_operator import (
     DataFlowJavaOperator)
 from operators import (CleanAndPushEpisodeOperator)
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow.models import Variable
 
 start_date = datetime(2020, 1, 1)
-end_date = datetime(2020,1, 14)
+end_date = datetime(2020, 1, 14)
 
 default_args = {
     'start_date': start_date,
@@ -18,10 +18,13 @@ default_args = {
 }
 
 TOPIC_NAME = Variable.get("topic_name")
+RICK_TABLE_NAME = Variable.get("rick_table_name")
+MORTY_TABLE_NAME = Variable.get("morty_table_name")
 DATASET_SOURCE_PATH = Variable.get("dataset_source_path")
 GCP_PROJECT_ID = Variable.get("project_id")
+BASE_JAR_PATH = Variable.get("base_jar_path")
 GCP_CONNECTION_ID = "google_cloud_connection_temp"
-with DAG("rickandmorty_symbolic_word_3", catchup=True, default_args=default_args, schedule_interval='@daily') as dag:
+with DAG("rickandmorty_symbolic_word", catchup=True, default_args=default_args, schedule_interval='@daily') as dag:
     start_pipeline = DummyOperator(
         task_id="StartPipeline")
 
@@ -41,28 +44,22 @@ with DAG("rickandmorty_symbolic_word_3", catchup=True, default_args=default_args
         project_id=GCP_PROJECT_ID,
         gcp_conn_id=GCP_CONNECTION_ID
     )
-    
-    dialogs_symbolic_word_to_bigquery = DataFlowJavaOperator(
-        gcp_conn_id='gcp_default',
-        task_id='ProcessDialogsSymbolicWordToBigQuery',
-        jar='{{var.value.gcp_dataflow_base}}pipeline-ingress-cal-normalize-1.0.jar',
-        project=GCP_PROJECT_ID,
-        options={
-            'autoscalingAlgorithm': 'BASIC',
-            'maxNumWorkers': '50',
-            'start': '{ds}',
-            'partitionType': 'DAY'
-        })
 
-    # subscribe_task = PubSubCreateSubscriptionOperator(
-    #     task_id="subscribe_task", 
-    #     project_id=GCP_PROJECT_ID, 
-    #     topic=TOPIC_FOR_OPERATOR_DAG
-    # )
+    # dialogs_symbolic_word_to_bigquery = DataFlowJavaOperator(
+    #     gcp_conn_id=GCP_CONNECTION_ID,
+    #     job_name='rickandmorty_symbolic_word',
+    #     task_id='ProcessDialogsSymbolicWordToBigQuery',
+    #     jar=f'{BASE_JAR_PATH}/rickandmorty_processing_scripts-1.0-SNAPSHOT.jar',
+    #     job_class='FilterDialogs',
+    #     project=GCP_PROJECT_ID,
+    #     options={
+    #         'topicName': TOPIC_NAME,
+    #         'rickTableName': RICK_TABLE_NAME,
+    #         'mortyTableName': MORTY_TABLE_NAME,
+    #         'project':GCP_PROJECT_ID
+    #     })
 
     end_pipeline = DummyOperator(task_id="EndPipeline", dag=dag)
 
-    start_pipeline >> create_pubsub_topic_operator
-    create_pubsub_topic_operator >> dialogs_symbolic_word_to_bigquery
-    dialogs_symbolic_word_to_bigquery >> clean_and_push_episode_to_pubsub
+    start_pipeline >> create_pubsub_topic_operator >> clean_and_push_episode_to_pubsub
     clean_and_push_episode_to_pubsub >> end_pipeline
